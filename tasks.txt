@@ -1,0 +1,12 @@
+Objectives
+1) Implement small file optimization - read/write/open syscalls
+2) Truncate system call / Delete syscall
+3) Journalling file size changes to avoid block reuse
+4) Make directories syscall ????????????
+
+Side tasks
+1) Create a file system stats tool (usage/free blocks/???)
+2) Design workloads to test
+
+Resources
+https://pages.cs.wisc.edu/~remzi/Classes/537/Spring2016/Projects/p5b.html
