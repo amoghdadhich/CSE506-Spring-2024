@@ -160,12 +160,13 @@ filewrite(struct file *f, uint64 addr, int n)
         n1 = max;
 
       begin_op();
+      debug("Write Transaction begins\n");
       ilock(f->ip);
       if ((r = writei(f->ip, 1, addr + i, f->off, n1)) > 0)
         f->off += r;
       iunlock(f->ip);
       end_op();
-
+      debug("Write Transaction completed\n");
       if(r != n1){
         // error from writei
         break;
