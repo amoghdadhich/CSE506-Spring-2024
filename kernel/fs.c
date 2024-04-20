@@ -507,7 +507,7 @@ readi(struct inode* ip, int user_dst, uint64 dst, uint off, uint n)
   }
 
 
-  printf("readi: normal file\n");
+  // printf("readi: normal file\n");
   for (tot = 0; tot < n; tot += m, off += m, dst += m) {
     uint addr = bmap(ip, off / BSIZE);
     if (addr == 0)

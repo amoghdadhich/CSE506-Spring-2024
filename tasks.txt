@@ -1,8 +1,7 @@
 Objectives
-1) Implement small file optimization - read/write/open syscalls
+1) Implement small file optimization - read/write/open syscalls - done
 2) Truncate system call / Delete syscall
 3) Journalling file size changes to avoid block reuse
-4) Make directories syscall ????????????
 
 Side tasks
 1) Create a file system stats tool (usage/free blocks/???)
