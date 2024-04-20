@@ -42,18 +42,17 @@ struct log {
   int start;
   int size;
   int outstanding; // how many FS sys calls are executing.
-  int committing;  // In commit, don't allow blocks to be copied to disk
-  int copying;     // Don't allow syscalls to execute when the log is being copied to disk
+  int committing;  // in commit(), please wait.
   int dev;
   struct logheader lh;
 };
 struct log log;
 
 static void recover_from_log(void);
-static int copy_and_initiate_commit();
+static void commit();
 
 void
-initlog(int dev, struct superblock* sb)
+initlog(int dev, struct superblock *sb)
 {
   if (sizeof(struct logheader) >= BSIZE)
     panic("initlog: too big logheader");
@@ -72,11 +71,11 @@ install_trans(int recovering)
   int tail;
 
   for (tail = 0; tail < log.lh.n; tail++) {
-    struct buf* lbuf = bread(log.dev, log.start + tail + 1); // read log block
-    struct buf* dbuf = bread(log.dev, log.lh.block[tail]); // read dst
+    struct buf *lbuf = bread(log.dev, log.start+tail+1); // read log block
+    struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // read dst
     memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
     bwrite(dbuf);  // write dst to disk
-    if (recovering == 0)
+    if(recovering == 0)
       bunpin(dbuf);
     brelse(lbuf);
     brelse(dbuf);
@@ -87,8 +86,8 @@ install_trans(int recovering)
 static void
 read_head(void)
 {
-  struct buf* buf = bread(log.dev, log.start);
-  struct logheader* lh = (struct logheader*)(buf->data);
+  struct buf *buf = bread(log.dev, log.start);
+  struct logheader *lh = (struct logheader *) (buf->data);
   int i;
   log.lh.n = lh->n;
   for (i = 0; i < log.lh.n; i++) {
@@ -103,8 +102,8 @@ read_head(void)
 static void
 write_head(void)
 {
-  struct buf* buf = bread(log.dev, log.start);
-  struct logheader* hb = (struct logheader*)(buf->data);
+  struct buf *buf = bread(log.dev, log.start);
+  struct logheader *hb = (struct logheader *) (buf->data);
   int i;
   hb->n = log.lh.n;
   for (i = 0; i < log.lh.n; i++) {
@@ -128,16 +127,13 @@ void
 begin_op(void)
 {
   acquire(&log.lock);
-  while (1) {
-    if (log.copying) {
+  while(1){
+    if(log.committing){
       sleep(&log, &log.lock);
-    }
-    else if (log.lh.n + (log.outstanding + 1) * MAXOPBLOCKS > LOGSIZE) {
-      // this op might exhaust log space; wait for blocks to be copied to disk log
+    } else if(log.lh.n + (log.outstanding+1)*MAXOPBLOCKS > LOGSIZE){
+      // this op might exhaust log space; wait for commit.
       sleep(&log, &log.lock);
-    }
-    else {
-      debug("[BEGIN OP] : %d blocks in the log. Starting transaction...\n", log.lh.n);
+    } else {
       log.outstanding += 1;
       release(&log.lock);
       break;
@@ -146,52 +142,35 @@ begin_op(void)
 }
 
 // called at the end of each FS system call.
-// copies the blocks to the on disk log if the log is about to fill up
+// commits if this was the last outstanding operation.
 void
 end_op(void)
 {
-  int do_copy = 0;
+  int do_commit = 0;
 
   acquire(&log.lock);
   log.outstanding -= 1;
-  if (log.copying)
-    panic("log.copying");
-  if (log.lh.n > LOGSIZE - MAXOPBLOCKS) {
-    // Initiate a copy operation if the next transaction could fill up the log
-    debug("[END OP] Number of blocks in log = %d. Initiating copy!\n");
-    do_copy = 1;
-    log.copying = 1;
-  }
-  else {
+  if(log.committing)
+    panic("log.committing");
+  if(log.outstanding == 0){
+    do_commit = 1;
+    log.committing = 1;
+  } else {
     // begin_op() may be waiting for log space,
     // and decrementing log.outstanding has decreased
     // the amount of reserved space.
-    debug("[END OP] : %d blocks in the log. Ending transaction...\n", log.lh.n);
     wakeup(&log);
   }
   release(&log.lock);
 
-  if (do_copy) {
+  if(do_commit){
+    // call commit w/o holding locks, since not allowed
+    // to sleep with locks.
+    commit();
     acquire(&log.lock);
-
-    while (1) {
-      if (log.committing) {
-        // Check if a commit is in progress
-        debug("[END OP] : Attempting copy while commit in progress. Sleeping ...\n");
-        sleep(&log, &log.lock);
-      }
-
-      else {
-        release(&log.lock);
-
-        // Copy without holding lock as IO might cause process to sleep
-        if (copy_and_initiate_commit() < 0)
-          panic("Commit failed!\n");
-
-        else
-          break;
-      }
-    }
+    log.committing = 0;
+    wakeup(&log);
+    release(&log.lock);
   }
 }
 
@@ -202,8 +181,8 @@ write_log(void)
   int tail;
 
   for (tail = 0; tail < log.lh.n; tail++) {
-    struct buf* to = bread(log.dev, log.start + tail + 1); // log block
-    struct buf* from = bread(log.dev, log.lh.block[tail]); // cache block
+    struct buf *to = bread(log.dev, log.start+tail+1); // log block
+    struct buf *from = bread(log.dev, log.lh.block[tail]); // cache block
     memmove(to->data, from->data, BSIZE);
     bwrite(to);  // write the log
     brelse(from);
@@ -211,72 +190,16 @@ write_log(void)
   }
 }
 
-// static void
-// commit()
-// {
-//   if (log.lh.n > 0) {
-//     write_log();     // Write modified blocks from cache to log
-//     write_head();    // Write header to disk -- the real commit
-//     install_trans(0); // Now install writes to home locations
-//     log.lh.n = 0;
-//     write_head();    // Erase the transaction from the log
-//   }
-// }
-
-static int
-copy_and_initiate_commit()
+static void
+commit()
 {
-  if (log.committing == 0 && log.lh.n > 0) {
-    // Copy
-    write_log();
-    write_head();
-
-    // Reset outstanding transactions to 0 and initiate the commit
-    acquire(&log.lock);
+  if (log.lh.n > 0) {
+    write_log();     // Write modified blocks from cache to log
+    write_head();    // Write header to disk -- the real commit
+    install_trans(0); // Now install writes to home locations
     log.lh.n = 0;
-    log.committing = 1;
-
-    // Since copying is completed any sleeping syscalls can be woken up
-    debug("[COPY] Copy complete!\n");
-    log.copying = 0;
-    wakeup(&log);
-    release(&log.lock);
-
-    // Fork a process which installs the transactions to disk
-    int pid;
-    if ((pid = fork()) == 0) {
-      // Child process performs commit actions
-      debug("[COPY] Child process commmitting log...\n");
-      install_trans(0);
-      // TO DO: Clear the header value on disk 
-      // TO DO: Write a policy to commit intermittentlys
-
-      // Commit completed
-      acquire(&log.lock);
-      log.committing = 0;
-      wakeup(&log);
-      debug("[COPY] Log committed! Child exiting...\n");
-      release(&log.lock);
-
-      exit(0);
-    }
-
-    else if (pid == -1) {
-      printf("Fork failed in log commit!\n");
-      return -1;
-    }
-
-    else {
-      // Parent process returns
-      printf("Parent exiting after initiating commit\n");
-      return 0;
-    }
+    write_head();    // Erase the transaction from the log
   }
-
-  else
-    printf("Log committing while copying!");
-
-  return -1;
 }
 
 // Caller has modified b->data and is done with the buffer.
@@ -289,7 +212,7 @@ copy_and_initiate_commit()
 //   log_write(bp)
 //   brelse(bp)
 void
-log_write(struct buf* b)
+log_write(struct buf *b)
 {
   int i;
 
