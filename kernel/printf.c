@@ -134,12 +134,3 @@ printfinit(void)
   pr.locking = 1;
 }
 
-#ifdef DEBUG
-    void debug(char* msg, ...) 
-    {
-        printf("%s %d <%s>: ", __FILE__, __LINE__, __FUNCTION__);
-        printf(msg);
-    }
-#else
-    void debug(char* msg, ...) { return; }
-#endif

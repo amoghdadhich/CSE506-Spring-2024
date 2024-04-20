@@ -80,7 +80,11 @@ int             pipewrite(struct pipe*, uint64, int);
 void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
-void            debug(char* msg, ...);
+#ifdef DEBUG
+#define debug(msg, ...) printf("DEBUG: %s line %d in <%s>: ", __FILE__, __LINE__, __FUNCTION__); printf(msg, ##__VA_ARGS__)
+#else
+#define debug(msg, ...) do{} while (0)
+#endif
 
 // proc.c
 int             cpuid(void);
