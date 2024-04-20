@@ -204,7 +204,7 @@ struct inode*
   struct buf* bp;
   struct dinode* dip;
 
-  // printf("ialloc: dev=%d, type=%d\n", dev, type);
+  debug("ialloc: dev=%d, type=%d\n", dev, type);
 
   for (inum = 1; inum < sb.ninodes; inum++) {
     bp = bread(dev, IBLOCK(inum, sb));
@@ -496,9 +496,9 @@ readi(struct inode* ip, int user_dst, uint64 dst, uint off, uint n)
       return -1;
     }
 
-    // printf("readi: small file\n");
+    debug("readi: small file\n");
     if (either_copyout(user_dst, dst, (char*)(ip->addrs) + off, n) == -1) {
-      // printf("readi: copyout failed\n");
+      debug("readi: copyout failed\n");
       return -1;
     }
     else {
@@ -507,7 +507,7 @@ readi(struct inode* ip, int user_dst, uint64 dst, uint off, uint n)
   }
 
 
-  // printf("readi: normal file\n");
+  // debug("readi: normal file\n");
   for (tot = 0; tot < n; tot += m, off += m, dst += m) {
     uint addr = bmap(ip, off / BSIZE);
     if (addr == 0)
@@ -546,7 +546,7 @@ writei(struct inode* ip, int user_src, uint64 src, uint off, uint n)
   if (ip->type == T_SMALLFILE && off + n > (NDIRECT + 1) * sizeof(uint)) {
     // n = (NDIRECT + 1) * sizeof(uint) - off;
 
-    // printf("writei: small file -> normal file\n");
+    debug("writei: small file -> normal file\n");
 
     uint temp[NDIRECT + 1];
 
@@ -567,12 +567,12 @@ writei(struct inode* ip, int user_src, uint64 src, uint off, uint n)
 
 
   if (ip->type == T_SMALLFILE) {
-    // printf("writei: small file\n");
+    debug("writei: small file\n");
 
     either_copyin((char*)(ip->addrs) + off, user_src, src, n);
 
     ip->size = max(ip->size, off + n);
-    // printf("writei: %d bytes to small file at offset %d, new size: %d\n", n, off, ip->size);
+    debug("writei: %d bytes to small file at offset %d, new size: %d\n", n, off, ip->size);
 
     iupdate(ip);
 
@@ -597,7 +597,7 @@ writei(struct inode* ip, int user_src, uint64 src, uint off, uint n)
   if (off > ip->size)
     ip->size = off;
 
-  // printf("writei: %d bytes to normal file at offset %d, new size: %d\n", n, off, ip->size);
+  debug("writei: %d bytes to normal file at offset %d, new size: %d\n", n, off, ip->size);
 
   // write the i-node back to disk even if the size didn't change
   // because the loop above might have called bmap() and added a new
