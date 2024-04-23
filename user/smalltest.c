@@ -55,6 +55,8 @@ int main(void)
   write(fd, "loda bsdk\n", 10);
   write(fd, "loda bsdk\n", 10);
 
+  ftruncate(fd, 40);
+
   close(fd);
 
   printf("Test program\n");

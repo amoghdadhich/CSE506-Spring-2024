@@ -188,24 +188,23 @@ filewrite(struct file* f, uint64 addr, int n)
   return ret;
 }
 
+// Truncate file f to length n.
 int filetruncate(struct file* f, int length) {
 
   debug("filetruncate: length = %d\n", length);
   debug("filetruncate: f->type = %d\n", f->type);
 
   if (f->type == FD_INODE) {
-    int r;
 
     begin_op();
     ilock(f->ip);
 
-    if ((r = truncate(f->ip, length)) >= 0) {
-      f->off = r;
-    }
+    truncate(f->ip, length);
+    f->off = length;
 
     iunlock(f->ip);
     end_op();
-    return (r == length ? r : -1);
+    return 0;
   }
   return -1;
 }

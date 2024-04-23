@@ -523,7 +523,7 @@ sys_pipe(void)
 }
 
 // Adding truncate system call
-uint64 sys_truncate(void) {
+uint64 sys_ftruncate(void) {
   struct file* f;
   int length;
 

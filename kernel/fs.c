@@ -474,46 +474,6 @@ stati(struct inode* ip, struct stat* st)
 }
 
 
-int truncate(struct inode* ip, int length) {
-  debug("truncate: length = %d\n", length);
-
-  if (ip->type == T_FILE) {
-    struct buf* bp;
-    uint* a;
-    uint addr = bmap(ip, length / BSIZE);
-    bp = bread(ip->dev, addr);
-    uint totalBlocks = length / BSIZE;
-    memset(bp->data + (length % BSIZE), 0, BSIZE);
-
-    for (uint i = totalBlocks + 1; i < NDIRECT; i++) {
-      if (ip->addrs[i] != 0) {
-        debug("truncate: freeing block %d\n", i);
-        bzero(ip->dev, ip->addrs[i]);
-      }
-    }
-
-    if (ip->addrs[NDIRECT]) {
-      bp = bread(ip->dev, ip->addrs[NDIRECT]);
-      a = (uint*)bp->data;
-      for (uint i = 0; i < NINDIRECT; i++) {
-        if (a[i] != 0) {
-          bzero(ip->dev, a[i]);
-        }
-      }
-
-    }
-
-    ip->size = length;
-
-    iupdate(ip);
-    return length;
-  }
-  else {
-    return -1;
-  }
-}
-
-
 // Read data from inode.
 // Caller must hold ip->lock.
 // If user_dst==1, then dst is a user virtual address;
@@ -804,4 +764,153 @@ struct inode*
   nameiparent(char* path, char* name)
 {
   return namex(path, 1, name);
+}
+
+
+// Truncate inode to length size
+void truncate(struct inode* ip, int length) {
+  debug("truncate: length = %d\n", length);
+  struct buf* bp;
+  uint* a;
+
+  // Handle small file truncation
+  if (ip->type == T_SMALLFILE) {
+
+    if (length > (NDIRECT + 1) * sizeof(uint)) {
+      debug("truncate: small file -> normal file\n");
+
+      uint temp[NDIRECT + 1];
+
+      memmove((char*)temp, (char*)ip->addrs, ip->size);
+
+      ip->type = T_FILE;
+      memset(ip->addrs, 0, sizeof(ip->addrs));
+
+      // Allocating and copying data from the inode to the data blocks
+      uint addr = bmap(ip, 0);
+      bp = bread(ip->dev, addr);
+      memmove(bp->data, (char*)temp, ip->size);
+
+      iupdate(ip);
+      log_write(bp);
+      brelse(bp);
+    }
+    else {
+      memset((char*)ip->addrs + length, 0, (NDIRECT + 1) * sizeof(uint) - length);
+      ip->size = length;
+    }
+
+  }
+
+  // Handle normal files
+  if (ip->type == T_FILE) {
+
+    if (length > ip->size) {
+      // If the new length is greater than the current size, 
+      // we need to allocate new blocks
+      // Allocate blocks for the new length
+      uint totalBlocks = length / BSIZE;
+      uint lastBlock = ip->size / BSIZE;
+
+      debug("truncate: totalBlocks = %d\n", totalBlocks);
+      debug("truncate: lastBlock = %d\n", lastBlock);
+
+      uint addr = bmap(ip, lastBlock);
+
+      bp = bread(ip->dev, addr);
+      memset(bp->data + (ip->size % BSIZE), 0, BSIZE - (ip->size % BSIZE));
+      log_write(bp);
+      brelse(bp);
+
+      for (uint i = lastBlock + 1; i <= totalBlocks; i++) {
+        uint addr = bmap(ip, i);
+        bp = bread(ip->dev, addr);
+        memset(bp->data, 0, BSIZE);
+        log_write(bp);
+        brelse(bp);
+
+        if (addr == 0) {
+          panic("truncate: bmap failed\n");
+        }
+      }
+
+      if (totalBlocks > NDIRECT) {
+        bp = bread(ip->dev, ip->addrs[NDIRECT]);
+        a = (uint*)bp->data;
+        for (uint i = 0; i <= totalBlocks - NDIRECT; i++) {
+          if (a[i] == 0) {
+            a[i] = balloc(ip->dev);
+          }
+        }
+        log_write(bp);
+        brelse(bp);
+
+        debug("Allocate new indirect block\n");
+      }
+
+    }
+    else {
+      // If the new length is less than the current size,
+      // we need to free the blocks that are not needed
+      uint addr = bmap(ip, length / BSIZE);
+      bp = bread(ip->dev, addr);
+      uint totalBlocks = length / BSIZE;
+      memset(bp->data + (length % BSIZE), 0, BSIZE - (length % BSIZE));
+      log_write(bp);
+      brelse(bp);
+
+
+      debug("truncate: totalBlocks = %d\n", totalBlocks);
+
+      for (uint i = totalBlocks + 1; i < NDIRECT; i++) {
+        if (ip->addrs[i] != 0) {
+          debug("truncate: freeing block %d\n", i);
+          bfree(ip->dev, ip->addrs[i]);
+          ip->addrs[i] = 0;
+        }
+      }
+
+      if (ip->addrs[NDIRECT]) {
+        bp = bread(ip->dev, ip->addrs[NDIRECT]);
+        a = (uint*)bp->data;
+        for (uint i = 0; i < NINDIRECT; i++) {
+          if (a[i] != 0) {
+            debug("truncate: freeing block %d\n", i + NDIRECT);
+            bfree(ip->dev, a[i]);
+            a[i] = 0;
+          }
+        }
+
+        ip->addrs[NDIRECT] = 0;
+        log_write(bp);
+        brelse(bp);
+      }
+
+    }
+
+    if (length < (NDIRECT + 1) * sizeof(uint)) {
+      // If the new length is less than the current size,
+      // we need to free the blocks that are not needed 
+      // and convert the file to a small file
+
+      debug("truncate: normal file -> small file\n");
+      uint temp[NDIRECT + 1];
+      uint addr = bmap(ip, length / BSIZE);
+      bp = bread(ip->dev, addr);
+
+      memmove((char*)temp, (char*)bp->data, length);
+      brelse(bp);
+      bfree(ip->dev, addr);
+
+      memset(ip->addrs, 0, sizeof(ip->addrs));
+      ip->type = T_SMALLFILE;
+
+      memmove((char*)ip->addrs, (char*)temp, length);
+
+    }
+    ip->size = max(length, 0);
+    iupdate(ip);
+
+    debug("truncate: new size = %d\n", ip->size);
+  }
 }
