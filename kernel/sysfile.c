@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "buf.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -519,4 +520,21 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+// Adding truncate system call
+uint64 sys_truncate(void) {
+  struct file* f;
+  int length;
+
+  // fetch the length of the file passed in argument
+  argint(1, &length);
+
+  debug("sys_truncate: length = %d\n", length);
+
+  // fetch the file descriptor
+  if (argfd(0, 0, &f) < 0)
+    return -1;
+
+  return filetruncate(f, length);
 }

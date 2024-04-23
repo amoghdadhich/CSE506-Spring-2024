@@ -55,7 +55,7 @@ bzero(int dev, int bno)
   struct buf* bp;
 
   bp = bread(dev, bno);
-  memset(bp->data, 0, BSIZE);
+  memset(bp->data, 0, sizeof(bp->data));
   log_write(bp);
   brelse(bp);
 }
@@ -472,6 +472,47 @@ stati(struct inode* ip, struct stat* st)
   st->nlink = ip->nlink;
   st->size = ip->size;
 }
+
+
+int truncate(struct inode* ip, int length) {
+  debug("truncate: length = %d\n", length);
+
+  if (ip->type == T_FILE) {
+    struct buf* bp;
+    uint* a;
+    uint addr = bmap(ip, length / BSIZE);
+    bp = bread(ip->dev, addr);
+    uint totalBlocks = length / BSIZE;
+    memset(bp->data + (length % BSIZE), 0, BSIZE);
+
+    for (uint i = totalBlocks + 1; i < NDIRECT; i++) {
+      if (ip->addrs[i] != 0) {
+        debug("truncate: freeing block %d\n", i);
+        bzero(ip->dev, ip->addrs[i]);
+      }
+    }
+
+    if (ip->addrs[NDIRECT]) {
+      bp = bread(ip->dev, ip->addrs[NDIRECT]);
+      a = (uint*)bp->data;
+      for (uint i = 0; i < NINDIRECT; i++) {
+        if (a[i] != 0) {
+          bzero(ip->dev, a[i]);
+        }
+      }
+
+    }
+
+    ip->size = length;
+
+    iupdate(ip);
+    return length;
+  }
+  else {
+    return -1;
+  }
+}
+
 
 // Read data from inode.
 // Caller must hold ip->lock.
