@@ -360,6 +360,9 @@ exit(int status)
     }
   }
 
+  // Flush the in memory buffers at exit
+  fflush();
+
   begin_op();
   iput(p->cwd);
   end_op();

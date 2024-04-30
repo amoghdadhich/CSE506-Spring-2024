@@ -1,11 +1,10 @@
 #include "types.h"
 #include "riscv.h"
 #include "defs.h"
-#include "param.h"
-#include "spinlock.h"
 #include "sleeplock.h"
 #include "fs.h"
 #include "buf.h"
+#include "log.h"
 
 // Simple logging that allows concurrent FS system calls.
 //
@@ -30,30 +29,7 @@
 //   ...
 // Log appends are synchronous.
 
-// Contents of the header block, used for both the on-disk header block
-// and to keep track in memory of logged block# before commit.
-struct logheader {
-  int n;
-  int block[LOGSIZE];
-};
-
-struct log {
-  struct spinlock lock;
-  struct spinlock commitLock;
-  int start;
-  int size;
-  int outstanding; // how many FS sys calls are executing.
-  int committing;  // In commit, don't allow blocks to be copied to disk
-  int copying;     // Don't allow syscalls to execute when the log is being copied to disk
-  int copyAttempted;    // Dont try to initiate a copy again when a previous thread has already attempted to copy 
-  int dev;
-  struct logheader lh;
-};
 struct log log;
-
-static void recover_from_log(void);
-static void copy_and_initiate_commit();
-static void clear_disk_log_header();
 
 void
 initlog(int dev, struct superblock *sb)
@@ -151,7 +127,6 @@ begin_op(void)
 void
 end_op(void)
 {
-  int do_copy = 0;
   acquire(&log.lock);
     log.outstanding -= 1;
     
@@ -207,19 +182,7 @@ write_log(void)
   }
 }
 
-// static void
-// commit()
-// {
-//   if (log.lh.n > 0) {
-//     write_log();     // Write modified blocks from cache to log
-//     write_head();    // Write header to disk -- the real commit
-//     install_trans(0); // Now install writes to home locations
-//     log.lh.n = 0;
-//     write_head();    // Erase the transaction from the log
-//   }
-// }
-
-static void
+void
 copy_and_initiate_commit()
 {
   if (log.committing == 0 && log.lh.n > 0){

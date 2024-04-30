@@ -23,6 +23,21 @@ main(void)
   dup(0);  // stdout
   dup(0);  // stderr
 
+  // Launch a thread that acts as a worker thread to perform commits of
+  // Blocks from the on-disk file log to their locations on disk
+  printf("init: Launching commit worker process\n");
+  pid = fork();
+
+  if (pid < 0){
+    printf("init: fork failed. Could not launch commit worker\n");
+    exit(1);
+  }
+
+  else if(pid == 0){
+    commit_worker();
+    printf("Commit worker exiting!\n");
+  }
+
   for(;;){
     printf("init: starting sh\n");
     pid = fork();

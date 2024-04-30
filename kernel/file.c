@@ -5,19 +5,20 @@
 #include "types.h"
 #include "riscv.h"
 #include "defs.h"
-#include "param.h"
 #include "fs.h"
 #include "spinlock.h"
-#include "sleeplock.h"
 #include "file.h"
 #include "stat.h"
 #include "proc.h"
+#include "log.h"
 
 struct devsw devsw[NDEV];
 struct {
   struct spinlock lock;
   struct file file[NFILE];
 } ftable;
+
+extern struct log log;
 
 void
 fileinit(void)
@@ -81,6 +82,47 @@ fileclose(struct file *f)
     end_op();
   }
 }
+
+// Flush the in-memory log to disk and initiate commit
+// Called at process exit
+void
+fflush()
+{
+  // Initiate the copying of in-memory log to disk
+  acquire(&log.lock);
+    log.copying = 1;
+  release(&log.lock);
+
+  // Commit the memory log to disk
+  acquire(&log.commitLock);
+    
+  // Initiate the copy of memory log to the disk
+  log.copyAttempted = 1;
+
+  while (1){
+    if (log.committing){
+      // Check if a commit is in progress
+      debug("Attempting copy while commit in progress. Sleeping ...\n");
+      sleep(&log, &log.commitLock);
+    }
+
+    else {
+      // Copy without holding lock as IO might cause process to sleep
+      release(&log.commitLock); 
+      copy_and_initiate_commit();
+      debug("Returning after initiating commit\n");
+      return;
+    }
+  }
+}
+
+void
+launch_commit_worker()
+{
+  printf("Entering commit loop\n");
+  commit_loop();
+}
+
 
 // Get metadata about file f.
 // addr is a user virtual address, pointing to a struct stat.

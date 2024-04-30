@@ -108,6 +108,20 @@ sys_close(void)
 }
 
 uint64
+sys_flush(void)
+{
+  fflush();
+  return 0;
+}
+
+uint64
+sys_commit_worker(void)
+{
+  launch_commit_worker();
+  return 0;
+}
+
+uint64
 sys_fstat(void)
 {
   struct file *f;
