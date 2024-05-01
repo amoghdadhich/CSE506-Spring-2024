@@ -1,6 +1,8 @@
 #include "types.h"
 #include "riscv.h"
 #include "defs.h"
+#include "spinlock.h"
+#include "param.h"
 #include "sleeplock.h"
 #include "fs.h"
 #include "buf.h"
@@ -30,6 +32,9 @@
 // Log appends are synchronous.
 
 struct log log;
+
+static void recover_from_log(void);
+static void clear_disk_log_header();
 
 void
 initlog(int dev, struct superblock *sb)
@@ -129,41 +134,10 @@ end_op(void)
 {
   acquire(&log.lock);
     log.outstanding -= 1;
-    
-    if (log.lh.n > LOGSIZE - MAXOPBLOCKS){
-      // Initiate a copy operation if the next transaction could fill up the log
-      debug("[END OP] Number of blocks in log = %d. Initiating copy!\n");
-      log.copying = 1;
-    }
-  release(&log.lock);
-
-  if(log.copying && !log.copyAttempted){
-    acquire(&log.commitLock);
-    
-    // Initiate the copy of memory log to the disk
-    log.copyAttempted = 1;
-
-    while (1){
-      if (log.committing){
-        // Check if a commit is in progress
-        debug("[END OP] Attempting copy while commit in progress. Sleeping ...\n");
-        sleep(&log, &log.commitLock);
-      }
-
-      else {
-        // Copy without holding lock as IO might cause process to sleep
-        release(&log.commitLock); 
-        copy_and_initiate_commit();
-        printf("[END OP] Returning after initiating commit. %d blocks in the log. Ending transaction...\n", log.lh.n);
-        return;
-      }
-    }
-  }
-    
-  else {
-    printf("[END OP] Ending transaction...\n");
-    return;
-  } 
+  release(&log.lock);  
+  
+  printf("[END OP] Ending transaction...\n");
+  return;
 }
 
 // Copy modified blocks from cache to log.
@@ -207,9 +181,19 @@ copy_and_initiate_commit()
     return;
   }
 
-  else
-    debug("Copy initiated but no blocks in log!\n");
-    return;
+  // No blocks to be copied. Reverse copying states
+  else{
+      debug("Copy initiated but no blocks in log!\n");
+      acquire(&log.lock);
+        log.copying = 0;
+      release(&log.lock);
+
+      acquire(&log.commitLock);
+        log.copyAttempted = 0;
+      release(&log.commitLock);
+  }
+    
+  return;
 
 }
 
@@ -248,26 +232,29 @@ log_write(struct buf *b)
 void
 commit_loop()
 {
+  debug("Acquiring commit lock\n");
+  acquire(&log.commitLock);
   while (1)
   {
-    acquire(&log.commitLock);
-
     if (log.copying){
-      debug("Attempting to commit while copying. Sleeping ...");
+      debug("Attempting to commit while copying. Sleeping ...\n");
+      debug("Sleeping on commit lock\n");
       sleep(&log, &log.commitLock);
     }
 
     else if (log.committing){
+      release(&log.commitLock);
       install_trans(0);
       clear_disk_log_header();
       log.committing = 0;
       wakeup(&log);
-      release(&log.commitLock);
+      acquire(&log.commitLock);
       debug("Finished commit!\n");
     }
 
     else {
       debug("Commit worker has nothing to do. Sleeping...\n");
+      debug("Sleeping on commit lock\n");
       sleep(&log, &log.commitLock);
     }
   }

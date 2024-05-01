@@ -2,15 +2,17 @@
 // Support functions for system calls that involve file descriptors.
 //
 
+#include "param.h"
 #include "types.h"
+#include "spinlock.h"
+#include "log.h"
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
-#include "spinlock.h"
+#include "sleeplock.h"
 #include "file.h"
 #include "stat.h"
 #include "proc.h"
-#include "log.h"
 
 struct devsw devsw[NDEV];
 struct {
@@ -94,6 +96,7 @@ fflush()
   release(&log.lock);
 
   // Commit the memory log to disk
+  debug("Acquiring commit lock\n");
   acquire(&log.commitLock);
     
   // Initiate the copy of memory log to the disk
@@ -103,11 +106,13 @@ fflush()
     if (log.committing){
       // Check if a commit is in progress
       debug("Attempting copy while commit in progress. Sleeping ...\n");
+      debug("Sleeping on commit lock\n");
       sleep(&log, &log.commitLock);
     }
 
     else {
       // Copy without holding lock as IO might cause process to sleep
+      debug("Releasing commit lock\n");
       release(&log.commitLock); 
       copy_and_initiate_commit();
       debug("Returning after initiating commit\n");

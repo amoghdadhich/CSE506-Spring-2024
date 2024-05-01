@@ -83,7 +83,7 @@ void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
 #ifdef DEBUG
-#define debug(msg, ...) printf("DEBUG: %s line %d in <%s>: ", __FILE__, __LINE__, __FUNCTION__); printf(msg, ##__VA_ARGS__)
+#define debug(msg, ...) do {printf("DEBUG: %s line %d in <%s>: ", __FILE__, __LINE__, __FUNCTION__); printf(msg, ##__VA_ARGS__);} while(0)
 #else
 #define debug(msg, ...) do{} while (0)
 #endif

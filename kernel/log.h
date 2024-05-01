@@ -1,9 +1,6 @@
 #ifndef LOG_H
 #define LOG_H
 
-#include "spinlock.h"
-#include "param.h"
-
 struct logheader {
   int n;
   int block[LOGSIZE];
@@ -23,8 +20,6 @@ struct log {
 };
 
 void copy_and_initiate_commit();
-static void recover_from_log(void);
-static void clear_disk_log_header();
 void commit_loop();
 
 #endif
