@@ -89,18 +89,13 @@ fileclose(struct file *f)
 // Called at process exit
 void
 fflush()
-{
-  // Initiate the copying of in-memory log to disk
-  acquire(&log.lock);
-    log.copying = 1;
-  release(&log.lock);
-
+{ 
   // Commit the memory log to disk
   debug("Acquiring commit lock\n");
   acquire(&log.commitLock);
     
   // Initiate the copy of memory log to the disk
-  log.copyAttempted = 1;
+  log.copying = 1;
 
   while (1){
     if (log.committing){
@@ -112,8 +107,6 @@ fflush()
 
     else {
       // Copy without holding lock as IO might cause process to sleep
-      debug("Releasing commit lock\n");
-      release(&log.commitLock); 
       copy_and_initiate_commit();
       debug("Returning after initiating commit\n");
       return;

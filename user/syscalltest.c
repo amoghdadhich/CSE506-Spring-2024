@@ -4,7 +4,7 @@
 #include "kernel/fs.h"
 #include "kernel/fcntl.h"
 
-#define NUM_CALLS 5
+#define NUM_CALLS 1000
 
 /* Demonstrate the logging behavior of FS syscalls */
 
@@ -26,6 +26,7 @@ int main(int argc, char ** argv)
         exit(-1);
     }
 
+    int t1 = uptime();
     /* Concurrent writes */
 
     if (!sequentialTest){
@@ -54,10 +55,13 @@ int main(int argc, char ** argv)
 
     else {
         for (int i = 0; i < NUM_CALLS; i++){
-            printf("Writing line %d...\n", i);
             write(fd, "This is a line\n", 16);
         }   
     }
+
+    int t2 = uptime();
+
+    printf("Time to perform writes = %d\n", t2 - t1);
 
     close(fd);
     exit(0);

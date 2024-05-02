@@ -113,17 +113,51 @@ begin_op(void)
 {
   acquire(&log.lock);
   while(1){
-    if(log.copying){
-      sleep(&log, &log.lock);
-    } else if(log.lh.n + (log.outstanding+1)*MAXOPBLOCKS > LOGSIZE){
+
+    if(log.lh.n + (log.outstanding+1)*MAXOPBLOCKS > LOGSIZE){
       // this op might exhaust log space; wait for blocks to be copied to disk log
-      sleep(&log, &log.lock);
-    } else {
-      printf("[BEGIN OP] : %d blocks in the log. Starting transaction...\n", log.lh.n);
+
+      release(&log.lock);
+      acquire(&log.commitLock);
+
+      if (!log.copying){
+        // Attempty a copy and a commit
+        log.copying = 1;
+      
+        while (1){
+          if (log.committing){
+            // Check if a commit is in progress
+            debug("[BEGIN OP] : Attempting copy while commit in progress. Sleeping ...\n");
+            sleep(&log, &log.commitLock);
+          }
+
+          else {
+            // Call this function while holding the lock, it returns after lock is released
+            copy_and_initiate_commit();
+            debug("[BEGIN OP] : Returning after initiating commit. Retrying transaction...\n");
+            acquire(&log.lock);
+            break;
+          }
+        }
+      }
+
+      else{
+        // Don't allow another thread to initiate a copy if one thread has tried already
+        debug("[BEGIN OP] : Another thread has attempted to copy. Attempting to restart transaction...\n");
+        release(&log.commitLock);
+        acquire(&log.lock);
+        sleep(&log, &log.lock);
+        continue;
+      }
+    } 
+    
+    else {
+      debug("[BEGIN OP] : %d blocks in the log. Starting transaction...\n", log.lh.n);
       log.outstanding += 1;
       release(&log.lock);
       break;
     }
+
   }
 }
 
@@ -136,7 +170,7 @@ end_op(void)
     log.outstanding -= 1;
   release(&log.lock);  
   
-  printf("[END OP] Ending transaction...\n");
+  debug("[END OP] Ending transaction...\n");
   return;
 }
 
@@ -156,10 +190,15 @@ write_log(void)
   }
 }
 
+/* Call this function while holding commitLock. It releases the lock before returning */
 void
 copy_and_initiate_commit()
 {
   if (log.committing == 0 && log.lh.n > 0){
+    
+    // Release the lock while performing I/O
+    release(&log.commitLock);
+
     // Copy
     write_log();
     write_head();
@@ -167,30 +206,32 @@ copy_and_initiate_commit()
     // Reset outstanding transactions to 0 and initiate the commit
     acquire(&log.lock);
       log.lh.n = 0; 
-      log.copying = 0;
     release(&log.lock);
 
     acquire(&log.commitLock);
       log.committing = 1;
       log.copyAttempted = 0;
+      log.copying = 0;
+    release(&log.commitLock);
 
       // Some process might also be sleeping in end_op waiting for copy to complete
       wakeup(&log);       
       debug("[COPY] Copy complete! Waking up commit worker process...\n");
-    release(&log.commitLock);
     return;
   }
 
   // No blocks to be copied. Reverse copying states
-  else{
+  else if (log.lh.n == 0){
       debug("Copy initiated but no blocks in log!\n");
-      acquire(&log.lock);
-        log.copying = 0;
-      release(&log.lock);
-
-      acquire(&log.commitLock);
-        log.copyAttempted = 0;
+      log.copying = 0;
       release(&log.commitLock);
+      return;
+  }
+
+  else{
+    debug("WARNING: copy attempted when commit in progress\n");
+    release(&log.commitLock);
+    return;
   }
     
   return;
@@ -247,8 +288,8 @@ commit_loop()
       install_trans(0);
       clear_disk_log_header();
       log.committing = 0;
-      wakeup(&log);
       acquire(&log.commitLock);
+      wakeup(&log);
       debug("Finished commit!\n");
     }
 
