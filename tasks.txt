@@ -10,3 +10,9 @@ Side tasks
 
 Resources
 https://pages.cs.wisc.edu/~remzi/Classes/537/Spring2016/Projects/p5b.html
+
+Future work
+1) Address out of in memory buffer error : There needs to be a way to decide which blocks to cache
+2) Accessing the latest blocks, maintaining some form of versioning information : an in memory block is flushed 
+but the block has not been written from its disk log to its position on the disk
+3) Kernel panics when disk is accessed when writes are in flight
