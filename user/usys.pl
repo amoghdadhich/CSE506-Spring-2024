@@ -38,3 +38,4 @@ entry("sleep");
 entry("uptime");
 entry("flush");
 entry("commit_worker");
+entry("ftruncate");
