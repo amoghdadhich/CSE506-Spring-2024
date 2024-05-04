@@ -48,6 +48,8 @@ struct log {
 };
 struct log log;
 
+int numCommits = 0;
+
 static void recover_from_log(void);
 static void commit();
 
@@ -196,6 +198,7 @@ commit()
   if (log.lh.n > 0) {
     write_log();     // Write modified blocks from cache to log
     write_head();    // Write header to disk -- the real commit
+    numCommits ++;
     install_trans(0); // Now install writes to home locations
     log.lh.n = 0;
     write_head();    // Erase the transaction from the log
