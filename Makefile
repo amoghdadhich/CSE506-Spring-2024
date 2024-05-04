@@ -134,7 +134,8 @@ UPROGS=\
 	$U/_zombie\
 	$U/_testprog\
 	$U/_syscalltest\
-	$U/_smalltest\
+	$U/_sf-write\
+	$U/_sf-read\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
