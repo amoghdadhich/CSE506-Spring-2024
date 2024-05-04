@@ -136,6 +136,7 @@ UPROGS=\
 	$U/_syscalltest\
 	$U/_sf-write\
 	$U/_sf-read\
+	$U/_sf-trunc\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
