@@ -287,8 +287,8 @@ commit_loop()
       release(&log.commitLock);
       install_trans(0);
       clear_disk_log_header();
-      log.committing = 0;
       acquire(&log.commitLock);
+      log.committing = 0;
       wakeup(&log);
       debug("Finished commit!\n");
     }
