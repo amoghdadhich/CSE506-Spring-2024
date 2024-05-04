@@ -32,6 +32,7 @@
 // Log appends are synchronous.
 
 struct log log;
+int numCommits;
 
 static void recover_from_log(void);
 static void clear_disk_log_header();
@@ -287,8 +288,10 @@ commit_loop()
       release(&log.commitLock);
       install_trans(0);
       clear_disk_log_header();
-      log.committing = 0;
       acquire(&log.commitLock);
+      log.committing = 0;
+      numCommits++;
+      printf("Number of commits = %d\n", numCommits);
       wakeup(&log);
       debug("Finished commit!\n");
     }
