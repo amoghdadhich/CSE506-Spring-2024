@@ -33,12 +33,13 @@
 
 struct log log;
 int numCommits;
+int numCommitBlocks = 0;
 
 static void recover_from_log(void);
 static void clear_disk_log_header();
 
 void
-initlog(int dev, struct superblock* sb)
+initlog(int dev, struct superblock *sb)
 {
   if (sizeof(struct logheader) >= BSIZE)
     panic("initlog: too big logheader");
@@ -56,12 +57,12 @@ install_trans(int recovering)
 {
   int tail;
 
-  for (tail = 0; tail < log.lh.n; tail++) {
-    struct buf* lbuf = bread(log.dev, log.start + tail + 1); // read log block
-    struct buf* dbuf = bread(log.dev, log.lh.block[tail]); // read dst
+  for (tail = 0; tail < numCommitBlocks; tail++) {
+    struct buf *lbuf = bread(log.dev, log.start+tail+1); // read log block
+    struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // read dst
     memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
     bwrite(dbuf);  // write dst to disk
-    if (recovering == 0)
+    if(recovering == 0)
       bunpin(dbuf);
     brelse(lbuf);
     brelse(dbuf);
@@ -72,8 +73,8 @@ install_trans(int recovering)
 static void
 read_head(void)
 {
-  struct buf* buf = bread(log.dev, log.start);
-  struct logheader* lh = (struct logheader*)(buf->data);
+  struct buf *buf = bread(log.dev, log.start);
+  struct logheader *lh = (struct logheader *) (buf->data);
   int i;
   log.lh.n = lh->n;
   for (i = 0; i < log.lh.n; i++) {
@@ -88,8 +89,8 @@ read_head(void)
 static void
 write_head(void)
 {
-  struct buf* buf = bread(log.dev, log.start);
-  struct logheader* hb = (struct logheader*)(buf->data);
+  struct buf *buf = bread(log.dev, log.start);
+  struct logheader *hb = (struct logheader *) (buf->data);
   int i;
   hb->n = log.lh.n;
   for (i = 0; i < log.lh.n; i++) {
@@ -113,20 +114,20 @@ void
 begin_op(void)
 {
   acquire(&log.lock);
-  while (1) {
+  while(1){
 
-    if (log.lh.n + (log.outstanding + 1) * MAXOPBLOCKS > LOGSIZE) {
+    if(log.lh.n + (log.outstanding+1)*MAXOPBLOCKS > LOGSIZE){
       // this op might exhaust log space; wait for blocks to be copied to disk log
 
       release(&log.lock);
       acquire(&log.commitLock);
 
-      if (!log.copying) {
+      if (!log.copying){
         // Attempty a copy and a commit
         log.copying = 1;
-
-        while (1) {
-          if (log.committing) {
+      
+        while (1){
+          if (log.committing){
             // Check if a commit is in progress
             debug("[BEGIN OP] : Attempting copy while commit in progress. Sleeping ...\n");
             sleep(&log, &log.commitLock);
@@ -142,7 +143,7 @@ begin_op(void)
         }
       }
 
-      else {
+      else{
         // Don't allow another thread to initiate a copy if one thread has tried already
         debug("[BEGIN OP] : Another thread has attempted to copy. Attempting to restart transaction...\n");
         release(&log.commitLock);
@@ -150,8 +151,8 @@ begin_op(void)
         sleep(&log, &log.lock);
         continue;
       }
-    }
-
+    } 
+    
     else {
       debug("[BEGIN OP] : %d blocks in the log. Starting transaction...\n", log.lh.n);
       log.outstanding += 1;
@@ -163,14 +164,14 @@ begin_op(void)
 }
 
 // called at the end of each FS system call.
-// commits if this was the last outstanding operation.
+// copies the blocks to the on disk log if the log is about to fill up
 void
 end_op(void)
 {
   acquire(&log.lock);
-  log.outstanding -= 1;
-  release(&log.lock);
-
+    log.outstanding -= 1;
+  release(&log.lock);  
+  
   debug("[END OP] Ending transaction...\n");
   return;
 }
@@ -182,8 +183,8 @@ write_log(void)
   int tail;
 
   for (tail = 0; tail < log.lh.n; tail++) {
-    struct buf* to = bread(log.dev, log.start + tail + 1); // log block
-    struct buf* from = bread(log.dev, log.lh.block[tail]); // cache block
+    struct buf *to = bread(log.dev, log.start+tail+1); // log block
+    struct buf *from = bread(log.dev, log.lh.block[tail]); // cache block
     memmove(to->data, from->data, BSIZE);
     bwrite(to);  // write the log
     brelse(from);
@@ -195,46 +196,48 @@ write_log(void)
 void
 copy_and_initiate_commit()
 {
-  if (log.committing == 0 && log.lh.n > 0) {
-
+  if (log.committing == 0 && log.lh.n > 0){
+    
     // Release the lock while performing I/O
     release(&log.commitLock);
 
     // Copy
+    debug("[COPY] Copy begins!\n");
     write_log();
     write_head();
 
     // Reset outstanding transactions to 0 and initiate the commit
     acquire(&log.lock);
-    log.lh.n = 0;
+      numCommitBlocks = log.lh.n;
+      log.lh.n = 0; 
     release(&log.lock);
 
     acquire(&log.commitLock);
-    log.committing = 1;
-    log.copyAttempted = 0;
-    log.copying = 0;
+      log.committing = 1;
+      log.copyAttempted = 0;
+      log.copying = 0;
     release(&log.commitLock);
 
-    // Some process might also be sleeping in end_op waiting for copy to complete
-    wakeup(&log);
-    debug("[COPY] Copy complete! Waking up commit worker process...\n");
+      // Some process might also be sleeping in end_op waiting for copy to complete
+      wakeup(&log);       
+      debug("[COPY] Copy complete! Waking up commit worker process...\n");
     return;
   }
 
   // No blocks to be copied. Reverse copying states
-  else if (log.lh.n == 0) {
-    debug("Copy initiated but no blocks in log!\n");
-    log.copying = 0;
-    release(&log.commitLock);
-    return;
+  else if (log.lh.n == 0){
+      debug("Copy initiated but no blocks in log!\n");
+      log.copying = 0;
+      release(&log.commitLock);
+      return;
   }
 
-  else {
+  else{
     debug("WARNING: copy attempted when commit in progress\n");
     release(&log.commitLock);
     return;
   }
-
+    
   return;
 
 }
@@ -249,7 +252,7 @@ copy_and_initiate_commit()
 //   log_write(bp)
 //   brelse(bp)
 void
-log_write(struct buf* b)
+log_write(struct buf *b)
 {
   int i;
 
@@ -278,16 +281,22 @@ commit_loop()
   acquire(&log.commitLock);
   while (1)
   {
-    if (log.copying) {
+    if (log.copying){
       debug("Attempting to commit while copying. Sleeping ...\n");
       debug("Sleeping on commit lock\n");
       sleep(&log, &log.commitLock);
     }
 
-    else if (log.committing) {
+    else if (log.committing){
       release(&log.commitLock);
+      debug("COMMIT BEGINS HERE\n");
       install_trans(0);
+
+      // Clear number of blocks to commit (TO DO: Lock access to this variable)
+      numCommitBlocks = 0;
+
       clear_disk_log_header();
+      debug("COMMIT ENDS HERE\n");
       acquire(&log.commitLock);
       log.committing = 0;
       numCommits++;
@@ -304,14 +313,18 @@ commit_loop()
   }
 }
 
-void
+void 
 clear_disk_log_header()
 {
-  struct buf* buf = bread(log.dev, log.start);
-  struct logheader* hb = (struct logheader*)(buf->data);
-
+  struct buf *buf = bread(log.dev, log.start);
+  struct logheader *hb = (struct logheader *) (buf->data);
+  
   // Mark the number of outstanding blocks to be 0
   // This erases the transaction from the disk log
+  for (int i = 0; i < LOGSIZE; i++){
+    hb->block[i] = 0;
+  }
+
   hb->n = 0;
 
   bwrite(buf);
