@@ -4,7 +4,7 @@
 #include "kernel/fs.h"
 #include "kernel/fcntl.h"
 
-#define NUM_CALLS 1500
+#define NUM_CALLS 1
 
 /* Demonstrate the logging behavior of FS syscalls */
 

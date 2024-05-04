@@ -66,6 +66,7 @@ bget(uint dev, uint blockno)
   for(b = bcache.head.next; b != &bcache.head; b = b->next){
     if(b->dev == dev && b->blockno == blockno){
       b->refcnt++;
+      debug("BLOCK %p is cached. refcnt = %d\n", b, b->refcnt);
       release(&bcache.lock);
       acquiresleep(&b->lock);
       return b;
@@ -80,6 +81,7 @@ bget(uint dev, uint blockno)
       b->blockno = blockno;
       b->valid = 0;
       b->refcnt = 1;
+      debug("BLOCK %p NOT cached. refcnt = %d\n", b, b->refcnt);
       release(&bcache.lock);
       acquiresleep(&b->lock);
       return b;
@@ -123,8 +125,12 @@ brelse(struct buf *b)
 
   acquire(&bcache.lock);
   b->refcnt--;
+
+  debug("BLOCK %p released. refcnt = %d\n", b, b->refcnt);
+
   if (b->refcnt == 0) {
     // no one is waiting for it.
+    debug("BLOCK %p has NO waiters. FREED!\n", b);
     b->next->prev = b->prev;
     b->prev->next = b->next;
     b->next = bcache.head.next;
@@ -140,13 +146,16 @@ void
 bpin(struct buf *b) {
   acquire(&bcache.lock);
   b->refcnt++;
+  debug("BLOCK %p pinned. refcnt = %d\n", b, b->refcnt);
   release(&bcache.lock);
 }
 
 void
 bunpin(struct buf *b) {
+  debug("HI IM UNPIN!!!!!!\n");
   acquire(&bcache.lock);
   b->refcnt--;
+  debug("BLOCK %p unpinned. refcnt = %d\n", b, b->refcnt);
   release(&bcache.lock);
 }
 

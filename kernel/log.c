@@ -33,6 +33,7 @@
 
 struct log log;
 int numCommits;
+int numCommitBlocks = 0;
 
 static void recover_from_log(void);
 static void clear_disk_log_header();
@@ -56,7 +57,7 @@ install_trans(int recovering)
 {
   int tail;
 
-  for (tail = 0; tail < log.lh.n; tail++) {
+  for (tail = 0; tail < numCommitBlocks; tail++) {
     struct buf *lbuf = bread(log.dev, log.start+tail+1); // read log block
     struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // read dst
     memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
@@ -201,11 +202,13 @@ copy_and_initiate_commit()
     release(&log.commitLock);
 
     // Copy
+    debug("[COPY] Copy begins!\n");
     write_log();
     write_head();
 
     // Reset outstanding transactions to 0 and initiate the commit
     acquire(&log.lock);
+      numCommitBlocks = log.lh.n;
       log.lh.n = 0; 
     release(&log.lock);
 
@@ -286,8 +289,14 @@ commit_loop()
 
     else if (log.committing){
       release(&log.commitLock);
+      debug("COMMIT BEGINS HERE\n");
       install_trans(0);
+
+      // Clear number of blocks to commit (TO DO: Lock access to this variable)
+      numCommitBlocks = 0;
+
       clear_disk_log_header();
+      debug("COMMIT ENDS HERE\n");
       acquire(&log.commitLock);
       log.committing = 0;
       numCommits++;
@@ -312,6 +321,10 @@ clear_disk_log_header()
   
   // Mark the number of outstanding blocks to be 0
   // This erases the transaction from the disk log
+  for (int i = 0; i < LOGSIZE; i++){
+    hb->block[i] = 0;
+  }
+
   hb->n = 0;
 
   bwrite(buf);
