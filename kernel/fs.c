@@ -64,6 +64,7 @@ bzero(int dev, int bno)
 
 // Allocate a zeroed disk block.
 // returns 0 if out of disk space.
+int balloc_ctr = 0;
 static uint
 balloc(uint dev)
 {
@@ -80,6 +81,7 @@ balloc(uint dev)
         log_write(bp);
         brelse(bp);
         bzero(dev, b + bi);
+        printf("Block Count: %d\n", balloc_ctr++);
         return b + bi;
       }
     }
