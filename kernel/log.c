@@ -34,6 +34,7 @@
 struct log log;
 int numCommits;
 int numCommitBlocks = 0;
+int commitBlocks[LOGSIZE];
 
 static void recover_from_log(void);
 static void clear_disk_log_header();
@@ -59,7 +60,7 @@ install_trans(int recovering)
 
   for (tail = 0; tail < numCommitBlocks; tail++) {
     struct buf *lbuf = bread(log.dev, log.start+tail+1); // read log block
-    struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // read dst
+    struct buf *dbuf = bread(log.dev, commitBlocks[tail]); // read dst
     memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
     bwrite(dbuf);  // write dst to disk
     if(recovering == 0)
@@ -209,7 +210,12 @@ copy_and_initiate_commit()
     // Reset outstanding transactions to 0 and initiate the commit
     acquire(&log.lock);
       numCommitBlocks = log.lh.n;
-      log.lh.n = 0; 
+      log.lh.n = 0;
+
+      for (int i = 0; i < LOGSIZE; i++){
+        commitBlocks[i] = log.lh.block[i];
+      } 
+
     release(&log.lock);
 
     acquire(&log.commitLock);
