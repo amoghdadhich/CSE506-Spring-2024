@@ -47,3 +47,24 @@ You will need a RISC-V "newlib" tool chain from
 https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
 riscv64-softmmu.  Once they are installed, and in your shell
 search path, you can run "make qemu".
+
+
+------------------------------------------------------------------------
+
+## Improving File System syscall performance on xv6
+
+### Asynchronous logging protocol
+- Writes to disk are no longer synchronized with writes to in-memory buffers. 
+- Achieved an improvement of 94% in write syscall latency.
+
+### Optimization for small files
+- Storing contents of smaller files within inode blocks.
+- Seamless transition between “small” and regular files through the implementation of ftruncate() syscall.
+- Achieved a reduction of 29% (unchanged logging) and 91% (with new log protocol) in disk IO requests.
+
+### Usage and Tests
+- To run the tests, run `make qemu` and then run:
+    - `syscalltest` to check number of commits and time taken for each syscall.
+    - `sf-write` with -s flag to test small file optimization, and -n flag to test normal file writes.
+    - `sf-read` to check small file and normal file reads.
+    - `sf-trunc` with -i to increase the size of the file, and -d to decrease the size of the file.
